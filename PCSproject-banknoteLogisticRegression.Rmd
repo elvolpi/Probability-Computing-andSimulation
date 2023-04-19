@@ -1,0 +1,137 @@
+---
+title: "Banknote Logistic Regression"
+author: "Elena Volpi"
+date: "12/4/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+# Predicting fake banknotes using logistic regression
+```{r}
+#URL: https://archive.ics.uci.edu/ml/datasets/banknote+authentication
+banknote <- read.csv("~/Desktop/PCS/data_banknote_authentication.txt", header=FALSE)
+colnames(banknote) <- c('Variance', 'Skew', 'Curtosis','Entropy', 'Authentic')
+
+# Variance finds how each pixel varies from the neighboring pixels and classifies them into different regions
+# Skewness is the measure of the lack of symmetry
+# Kurtosis is a measure of whether the data are heavy-tailed or light-tailed relative to a normal distribution
+# Entropy is a quantity which is used to describe the amount of information which must be coded for, by a compression algorithm
+# Authentic contains two values 0 representing a real note and 1 representing fake note
+
+```
+
+```{r}
+mylogit <- glm(Authentic ~ Entropy+ Variance+Curtosis+Skew, data = banknote, family = "binomial")
+summary(mylogit)
+```
+```{r}
+#Since Entropy is not significant, fit without entropy. 
+mylogit <- glm(Authentic ~ Variance+Curtosis+Skew, data = banknote, family = "binomial")
+summary(mylogit)
+
+#AIC went up? -> colinearity
+```
+
+```{r}
+Z <- model.matrix(~Variance + Skew+ Curtosis , data = banknote)
+Y <- as.matrix(banknote[,5] )  #response (Authentic)
+
+
+g = function(B){
+  b <- log(1+exp((Z)%*%(B)))
+  matrix(Y,nrow=1)%*%Z%*%matrix(B,ncol=1) - sum(b)
+}
+g.prime = function(B){
+  pi <- as.matrix(exp(Z%*%B)/(1+exp(Z%*%B)))#column
+  t(Z)%*%matrix(Y-pi,ncol=1)
+}
+
+g.prime2.B2 = function(B){
+  pi<- as.matrix((exp(Z%*%B))/(1+exp(Z%*%B)))#column
+  W <- diag(c(pi*(1-pi)))
+  -t(Z)%*%W%*%Z 
+ }
+ 
+
+```
+
+```{r}
+#Newton R
+newton <- function(B,itr) { 
+  B.values = matrix(0,itr+1,4)
+  B.values[1,] = B
+  
+  for(i in 1:itr){
+    B = B - solve(g.prime2.B2(B))%*%g.prime(B)
+    B.values[i+1,] = B
+  }
+    
+    print(B)# FINAL ESTIMATE
+    print(g(B)) 		# OBJECTIVE FUNCTION AT ESTIMATE
+    print(g.prime(B)) 	# GRADIENT AT ESTIMATE
+}
+start.time <- Sys.time()  #To measure computation time 
+B <- c(-0.5,-0.5,-0.5,-0.5)
+itr = 12
+newton(B,itr)
+end.time <- Sys.time()
+time.taken <- end.time - start.time #difference and start and end
+time.taken
+
+```
+
+Converged after thirteen iterations with B = (0,0,0,0)
+
+Fastest was 12, least fast while still converging was 15. 
+```{r}
+neg_likelihood <- function(B){
+   b <- log(1+exp((Z)%*%(B)))
+  -1 * (matrix(Y,nrow=1)%*%Z%*%matrix(B,ncol=1)-sum(b))
+}
+start.time <- Sys.time()
+B <- c(-.5,-.5,-.5,-.5)
+#neg_likelihood(B)
+optim(B, fn = neg_likelihood, method = "BFGS")
+
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+Fastest was 43, least fast was 67. 
+```{r}
+##Steepest ascent 
+## INITIAL VALUES
+start.time <- Sys.time()
+B <- c(7,-7,-4,-5)
+M = g.prime2.B2(B)
+itr = 80
+alpha.default = 1
+alpha = alpha.default
+B.values = matrix(0,itr+1,4)
+B.values[1,] = B
+
+for (i in 1:itr){
+  ##FIX ME
+    hessian.inv = solve(M)
+    Bt = as.matrix(B) - alpha*hessian.inv%*%g.prime(B)
+    # REDUCE ALPHA UNTIL A CORRECT STEP IS REACHED
+    while(g(Bt) < g(B)){
+    		alpha = alpha/2
+		Bt = B - alpha*hessian.inv%*%g.prime(B)
+    }
+    B.values[i+1,] = B = Bt
+    alpha = alpha.default
+}
+print(B)		# FINAL ESTIMATE
+print(g(B)) 		# OBJECTIVE FUNCTION AT ESTIMATE
+print(g.prime(B)) 	# GRADIENT AT ESTIMATE
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+```
+
